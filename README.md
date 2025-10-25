@@ -229,5 +229,5 @@ Tests use synthetic data; they’re fast and don't need vendor files.
 
 ## License
 
-This was a project to get my feet wet, thus is for evaluation and research use. FAFO (no warranty, use at your own risk).
+This was a project to get my feet wet, thus is for evaluation and research use. FAFO.
 
