@@ -1,0 +1,178 @@
+# Fees, tick specs and slippage assumptions for exchange combo trading
+# All monetary values are USD unless noted. Keep assumptions conservative.
+
+version: 1
+
+profiles:
+  # Named profiles referenced by settings.yaml (cost_profile, slippage_profile)
+  conservative:
+    combo_half_spread_ticks: 1.0     # assume crossing half the combo spread
+    legging_penalty_ticks: 1.0       # extra if legs are executed separately
+    illiquidity_extra_ticks: 1.0     # add when TOB size is small
+    partial_fill_ratio: 0.30         # fraction of TOB filled on first attempt
+    fee_round_turn_per_lot: 2.50     # all-in RT per lot for exchange combo (ex-broker commissions)
+  baseline:
+    combo_half_spread_ticks: 0.5
+    legging_penalty_ticks: 0.5
+    illiquidity_extra_ticks: 0.5
+    partial_fill_ratio: 0.40
+    fee_round_turn_per_lot: 2.00
+  optimistic:
+    combo_half_spread_ticks: 0.25
+    legging_penalty_ticks: 0.25
+    illiquidity_extra_ticks: 0.25
+    partial_fill_ratio: 0.50
+    fee_round_turn_per_lot: 1.50
+
+# Product specs. Tick maths is used for slippage and P&L conversion.
+# tick_value = tick_size * multiplier; combo pricing is in underlying price units.
+products:
+  CL:
+    name: WTI Crude Oil
+    exchange: NYMEX
+    currency: USD
+    tick_size: 0.01
+    multiplier: 1000.0
+    tick_value: 10.0
+    combo:
+      min_price_increment: 0.01
+      typical_half_spread_ticks: 1.0
+      notes: "Monthly listings; deep liquidity in front 6–12 contracts"
+  NG:
+    name: Henry Hub Natural Gas
+    exchange: NYMEX
+    currency: USD
+    tick_size: 0.001
+    multiplier: 10000.0
+    tick_value: 10.0
+    combo:
+      min_price_increment: 0.001
+      typical_half_spread_ticks: 1.0
+      notes: "Monthly listings; watch winter strips"
+  RB:
+    name: RBOB Gasoline
+    exchange: NYMEX
+    currency: USD
+    tick_size: 0.0001
+    multiplier: 42000.0
+    tick_value: 4.2
+    combo:
+      min_price_increment: 0.0001
+      typical_half_spread_ticks: 1.0
+      notes: "Monthly listings; seasonality strong"
+  HO:
+    name: NY Harbor ULSD (Heating Oil)
+    exchange: NYMEX
+    currency: USD
+    tick_size: 0.0001
+    multiplier: 42000.0
+    tick_value: 4.2
+    combo:
+      min_price_increment: 0.0001
+      typical_half_spread_ticks: 1.0
+  LCO:
+    name: ICE Brent Crude
+    exchange: ICE
+    currency: USD
+    tick_size: 0.01
+    multiplier: 1000.0
+    tick_value: 10.0
+    combo:
+      min_price_increment: 0.01
+      typical_half_spread_ticks: 1.0
+
+  GC:
+    name: COMEX Gold
+    exchange: COMEX
+    currency: USD
+    tick_size: 0.1
+    multiplier: 100.0
+    tick_value: 10.0
+    combo:
+      min_price_increment: 0.1
+      typical_half_spread_ticks: 1.0
+      notes: "Quarterly months; watch roll weeks"
+  SI:
+    name: COMEX Silver
+    exchange: COMEX
+    currency: USD
+    tick_size: 0.005
+    multiplier: 5000.0
+    tick_value: 25.0
+    combo:
+      min_price_increment: 0.005
+      typical_half_spread_ticks: 1.0
+  HG:
+    name: COMEX Copper
+    exchange: COMEX
+    currency: USD
+    tick_size: 0.0005
+    multiplier: 25000.0
+    tick_value: 12.5
+    combo:
+      min_price_increment: 0.0005
+      typical_half_spread_ticks: 1.0
+
+  ZC:
+    name: CBOT Corn
+    exchange: CBOT
+    currency: USD
+    tick_size: 0.0025
+    multiplier: 5000.0
+    tick_value: 12.5
+    combo:
+      min_price_increment: 0.0025
+      typical_half_spread_ticks: 1.0
+      notes: "H, K, N, U, Z months; avoid FND risk"
+  ZW:
+    name: CBOT Wheat
+    exchange: CBOT
+    currency: USD
+    tick_size: 0.0025
+    multiplier: 5000.0
+    tick_value: 12.5
+    combo:
+      min_price_increment: 0.0025
+      typical_half_spread_ticks: 1.0
+  ZS:
+    name: CBOT Soybeans
+    exchange: CBOT
+    currency: USD
+    tick_size: 0.0025
+    multiplier: 5000.0
+    tick_value: 12.5
+    combo:
+      min_price_increment: 0.0025
+      typical_half_spread_ticks: 1.0
+
+# Venue-level add-ons. If you connect to a broker API for paper, set broker_commission here (not in repo).
+venues:
+  NYMEX:
+    maker_rebate_per_lot: 0.00
+    taker_fee_per_lot: 0.00
+  COMEX:
+    maker_rebate_per_lot: 0.00
+    taker_fee_per_lot: 0.00
+  CBOT:
+    maker_rebate_per_lot: 0.00
+    taker_fee_per_lot: 0.00
+  ICE:
+    maker_rebate_per_lot: 0.00
+    taker_fee_per_lot: 0.00
+
+# Mapping for product → default profiles (overridable at runtime per backtest)
+default_mappings:
+  cost_profile: conservative
+  slippage_profile: conservative
+  by_product:
+    CL: {cost_profile: conservative, slippage_profile: conservative}
+    NG: {cost_profile: conservative, slippage_profile: conservative}
+    RB: {cost_profile: conservative, slippage_profile: conservative}
+    HO: {cost_profile: conservative, slippage_profile: conservative}
+    LCO: {cost_profile: conservative, slippage_profile: conservative}
+    GC: {cost_profile: conservative, slippage_profile: conservative}
+    SI: {cost_profile: conservative, slippage_profile: conservative}
+    HG: {cost_profile: conservative, slippage_profile: conservative}
+    ZC: {cost_profile: conservative, slippage_profile: conservative}
+    ZW: {cost_profile: conservative, slippage_profile: conservative}
+    ZS: {cost_profile: conservative, slippage_profile: conservative}

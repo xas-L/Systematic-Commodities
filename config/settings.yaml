@@ -1,0 +1,254 @@
+# Semi-systematic commodities RV — master settings
+# This file is repo-relative. Keep values conservative by default.
+
+version: 1
+project: semi_sys_commods
+
+env:
+  mode: dev            # dev | paper | live
+  timezone: UTC        # All timestamps stored in UTC; exchange-local handled by calendars
+  seed: 12345          # For reproducibility of CV folds etc.
+
+paths:
+  data_raw: data/raw                   # vendor drops of INDIVIDUAL contracts
+  data_meta: data/meta                 # specs, tick sizes, multipliers, FND/LTD, calendars
+  data_curated: data/curated           # parquet snapshots (point-in-time)
+  reports: reports                     # PM brief, stress packs
+  logs: logs
+  temp: .tmp
+  # secrets (broker keys) are stored outside repo; only a pointer here
+  secrets_hint: "../secrets/ib_paper.yaml"   # not committed
+
+calendars:
+  # Named trading calendars; files live under paths.data_meta/calendars
+  trading_calendar_ids: [CME, NYMEX, COMEX, CBOT, ICE]
+  holiday_files:
+    CME: data/meta/calendars/cme_holidays.csv
+    NYMEX: data/meta/calendars/nymex_holidays.csv
+    COMEX: data/meta/calendars/comex_holidays.csv
+    CBOT: data/meta/calendars/cbot_holidays.csv
+    ICE: data/meta/calendars/ice_holidays.csv
+
+universe:
+  # Curves we will trade. Symbols are future roots (not continuous tickers).
+  # Contract metadata (tick_size, multiplier, etc.) is defined in fees_slippage.yaml/specs.
+  curves:
+    CL:
+      exchange: NYMEX
+      currency: USD
+      month_cycle: ALL            # monthly listings
+      min_contracts: 8            # minimal listed contracts required to build curve
+      max_tenors: 14
+      sector: ENERGY
+    NG:
+      exchange: NYMEX
+      currency: USD
+      month_cycle: ALL
+      min_contracts: 10
+      max_tenors: 18
+      sector: ENERGY
+    RB:
+      exchange: NYMEX
+      currency: USD
+      month_cycle: ALL
+      min_contracts: 8
+      max_tenors: 12
+      sector: ENERGY
+    HO:
+      exchange: NYMEX
+      currency: USD
+      month_cycle: ALL
+      min_contracts: 8
+      max_tenors: 12
+      sector: ENERGY
+    LCO:
+      exchange: ICE
+      currency: USD
+      month_cycle: ALL
+      min_contracts: 8
+      max_tenors: 14
+      sector: ENERGY
+    GC:
+      exchange: COMEX
+      currency: USD
+      month_cycle: [G, J, M, Q, V, Z]   # Feb, Apr, Jun, Aug, Oct, Dec
+      min_contracts: 6
+      max_tenors: 8
+      sector: METALS
+    SI:
+      exchange: COMEX
+      currency: USD
+      month_cycle: [F, H, K, N, U, Z]   # Jan, Mar, May, Jul, Sep, Dec
+      min_contracts: 6
+      max_tenors: 8
+      sector: METALS
+    HG:
+      exchange: COMEX
+      currency: USD
+      month_cycle: [H, K, N, U, Z]      # Mar, May, Jul, Sep, Dec
+      min_contracts: 6
+      max_tenors: 8
+      sector: METALS
+    ZC:
+      exchange: CBOT
+      currency: USD
+      month_cycle: [H, K, N, U, Z]      # Mar, May, Jul, Sep, Dec
+      min_contracts: 5
+      max_tenors: 8
+      sector: GRAINS
+    ZW:
+      exchange: CBOT
+      currency: USD
+      month_cycle: [H, K, N, U, Z]
+      min_contracts: 5
+      max_tenors: 8
+      sector: GRAINS
+    ZS:
+      exchange: CBOT
+      currency: USD
+      month_cycle: [F, H, K, Q, U, X]   # Jan, Mar, May, Aug, Sep, Nov
+      min_contracts: 5
+      max_tenors: 8
+      sector: OILSEEDS
+
+curve_construction:
+  price_field_order: [settle, last]   # fallbacks if settle missing
+  drop_stale_after_days: 10           # if no print for N days, treat as missing
+  align_method: inner                 # intersection across expiries per day
+  log_spreads: true                   # use log-adjacent spreads for modelling
+  tenors_target: 10                   # aim to build up to this many adjacent spreads
+  filter:
+    min_volume: 500                   # per-contract daily volume threshold
+    min_open_interest: 2000
+  roll_policy:
+    prefer_exchange_combo: true       # roll via exchange-defined combos where available
+    roll_window_days: 5               # start rolling this many business days before target roll date
+    avoid_first_notice_days: 3        # auto-flatten calendar legs that cross FND-LTD windows
+    avoid_last_trade_days: 1
+
+models:
+  # Model hub order == attribution order
+  hub_order: [carry_momo_season, pca, coint_adjacent]
+
+  pca:
+    enabled: true
+    n_components: 3
+    ewma_span: 60                     # for adaptive z-scoring of factor values
+
+  nelson_siegel:
+    enabled: false                    # optional alternative to PCA; off by default
+    lambda_decay: 0.060               # shape parameter if enabled
+
+  carry_momo_season:
+    enabled: true
+    k_momentum_days: 20               # term-specific k-day returns
+    ewma_span: 60
+    seasonality:
+      enabled: true
+      significance_min_t: 2.0         # require effect strength; else suppress
+
+  coint_adjacent:
+    enabled: true
+    lookback_days: 250
+    pval_entry: 0.05                  # trade only when coint p-val small
+
+signal_and_sizing:
+  z_clip: 3.0                         # clip extreme z to reduce tail leverage
+  risk_per_curve_usd: 100000          # target risk budget per curve (notional proxy)
+  max_gross_usd: 2000000              # portfolio gross cap
+  convert_to_combo_sizes: true        # map factor-side to exchange combo qty via vol scaling
+  vol_target:
+    enabled: true
+    lookback_days: 60
+    annual_vol_target: 0.10           # 10% annualised per-curve target
+
+execution_sim:
+  bar: daily
+  decision_price: settle              # compute signals on settle at t
+  trade_on_next_bar: true             # submit at t+1 open/session start
+  combo_only: true                    # calendars and butterflies via exchange combos
+  allow_legging: false                # do not leg unless explicitly enabled in experiments
+  partial_fills: true
+  child_order:
+    timeout_seconds: 5
+    queue_fraction: 0.3               # crude queue position proxy (30% of TOB filled)
+  cost_profile: conservative          # defined in fees_slippage.yaml
+  slippage_profile: conservative      # defined in fees_slippage.yaml
+
+walkforward:
+  scheme: anchored
+  embargo_days: 5
+  folds:
+    # Rolling 6M tests after 5Y warm-up; adjust dates to your dataset
+    - {train_start: "2006-01-01", train_end: "2011-12-31", test_start: "2012-01-01", test_end: "2012-06-30"}
+    - {train_start: "2006-01-01", train_end: "2012-06-30", test_start: "2012-07-01", test_end: "2012-12-31"}
+    - {train_start: "2006-01-01", train_end: "2012-12-31", test_start: "2013-01-01", test_end: "2013-06-30"}
+    # … extend programmatically in scripts/run_walkforward.py
+
+risk:
+  per_curve:
+    CL: {risk_budget_usd: 120000, max_open_orders: 12, max_positions: 6,
+         flatten_days_before_fnd: 3, flatten_days_before_ltd: 1}
+    NG: {risk_budget_usd: 120000, max_open_orders: 12, max_positions: 6,
+         flatten_days_before_fnd: 3, flatten_days_before_ltd: 1}
+    RB: {risk_budget_usd: 80000, max_open_orders: 10, max_positions: 5,
+         flatten_days_before_fnd: 3, flatten_days_before_ltd: 1}
+    HO: {risk_budget_usd: 80000, max_open_orders: 10, max_positions: 5,
+         flatten_days_before_fnd: 3, flatten_days_before_ltd: 1}
+    LCO: {risk_budget_usd: 100000, max_open_orders: 10, max_positions: 5,
+          flatten_days_before_fnd: 3, flatten_days_before_ltd: 1}
+    GC: {risk_budget_usd: 60000, max_open_orders: 8, max_positions: 4,
+         flatten_days_before_fnd: 4, flatten_days_before_ltd: 1}
+    SI: {risk_budget_usd: 60000, max_open_orders: 8, max_positions: 4,
+         flatten_days_before_fnd: 4, flatten_days_before_ltd: 1}
+    HG: {risk_budget_usd: 60000, max_open_orders: 8, max_positions: 4,
+         flatten_days_before_fnd: 4, flatten_days_before_ltd: 1}
+    ZC: {risk_budget_usd: 60000, max_open_orders: 8, max_positions: 4,
+         flatten_days_before_fnd: 5, flatten_days_before_ltd: 1}
+    ZW: {risk_budget_usd: 60000, max_open_orders: 8, max_positions: 4,
+         flatten_days_before_fnd: 5, flatten_days_before_ltd: 1}
+    ZS: {risk_budget_usd: 60000, max_open_orders: 8, max_positions: 4,
+         flatten_days_before_fnd: 5, flatten_days_before_ltd: 1}
+  concentration_limits:
+    max_curves_per_sector: 3
+  portfolio_caps:
+    max_gross_usd: 2000000
+    max_net_usd: 1000000
+  kill_criteria:
+    model_health_breach: true
+    factor_drift_threshold: 0.5          # unitless; see models.health()
+    live_slip_over_backtest_bp: 50       # trigger de-risk if exceeded persistently
+    dd_sigma_threshold: 3.0              # three-sigma drawdown triggers flatten
+
+state_conditioning:
+  # Tag observable regimes; use in conditional performance cuts
+  tags:
+    seasonality: true
+    roll_windows: true
+    inventory_proxies:
+      EIA_energy: true      # weekly crude/gasoline/distillate
+      USDA_grains: true     # monthly/grain stocks
+    refinery_maintenance: true
+    shipping_freight_stress: true
+    storage_economics_flags: true
+
+ops:
+  hot_reload: true
+  kill_switch:
+    soft_file: PAUSE.NOW     # pause new orders; allow exits
+    hard_file: FLATTEN.NOW   # close positions and halt
+  logging:
+    level: INFO
+    rotate_mb: 50
+  metrics:
+    sink: csv
+    out_dir: logs/metrics
+
+reporting:
+  pm_brief:
+    out_dir: reports/pm_brief
+    include_tables: [attribution, walkforward, stress]
+    include_charts: [factor_loadings, turnover, pnl_path]
+  telemetry:
+    export_trades_csv: true
+    export_signals_csv: true

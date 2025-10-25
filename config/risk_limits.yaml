@@ -1,0 +1,173 @@
+# Semi-systematic commodities RV — centralised risk & limit policy
+# This file is consumed by src/ops/* and execsim/backtester.py.
+# Defaults are conservative and can be overridden per curve.
+
+version: 1
+policy_name: base_conservative
+
+precedence:
+  # If both settings.yaml and this file define a limit, this file wins.
+  override_settings_risk: true
+
+portfolio_caps:
+  max_gross_usd: 2000000
+  max_net_usd: 1000000
+  max_leverage: 2.0                  # gross / equity
+  max_daily_turnover_usd: 3000000    # notional traded
+  var_99_usd_cap: 150000             # simple param VaR cap (approximate)
+
+concentration_limits:
+  max_curves_per_sector: 3
+  max_weight_per_curve_gross: 0.25   # share of portfolio gross
+  max_sector_gross_share: 0.60
+
+expiry_ladders:
+  # Buckets along the curve to avoid loading all risk in the front
+  tenor_buckets:
+    - {name: FRONT,  months: [1,2]}
+    - {name: BELLY,  months: [3,4,5,6]}
+    - {name: BACK,   months: [7,8,9,10,11,12]}
+  max_buckets_per_curve_open: 2       # how many buckets can be active concurrently
+  max_positions_per_bucket: 4
+  flatten_days_before_fnd: 3          # default; per-curve overrides below
+  flatten_days_before_ltd: 1
+  roll_schedule: [0.5, 0.35, 0.15]    # fraction of target qty over successive roll days
+
+strategy_scope:
+  allowed_strategies: [calendar, butterfly]
+  calendar:
+    max_tenor_gap: 1                  # adjacent only by default
+    max_lots_per_order: 25
+  butterfly:
+    wing_gap: 1                       # (i, i+1, i+2) flies
+    max_lots_per_order: 15
+  disallow_directional_level: true
+
+margin_offsets:
+  # Crude SPAN-like offsets so sizing is not over-penalised for combos
+  calendar_discount: 0.65             # effective margin = base_margin * (1 - discount)
+  butterfly_discount: 0.50
+  min_margin_per_combo_usd: 500
+
+sizing_policy:
+  risk_budget_usd_per_curve_default: 100000
+  vol_target:
+    enabled: true
+    lookback_days: 60
+    annual_vol_target: 0.10
+  z_clip: 3.0
+  per_trade_notional_cap_usd: 150000
+  per_curve_open_notional_cap_usd: 500000
+
+execution_throttles:
+  max_parent_orders_per_min: 10
+  max_child_orders_per_sec: 5
+  max_cancel_replace_per_min: 30
+  max_pending_ratio: 0.30             # pending qty / total desired qty
+
+slippage_guards:
+  live_vs_backtest_bp_tolerance: 50   # de-risk if live slippage persistently > backtest by 50bp
+  persistence_minutes: 30
+  action: reduce_by_pct
+  reduce_pct: 0.50
+
+intraday_halts:
+  news_windows:
+    inventory_releases:
+      EIA_crude: {weekday: WED, time_utc: "14:30", window_min: 15}
+      EIA_ng:    {weekday: THU, time_utc: "14:30", window_min: 15}
+    action: pause_new_orders_only
+  vol_spike_guard:
+    lookback_min: 30
+    sigma_threshold: 4.0              # 4-sigma bar move pauses new orders for the bar
+
+kill_criteria:
+  model_health_breach: true
+  factor_drift_threshold: 0.5         # unitless; from models.health()
+  dd_sigma_threshold: 3.0             # three-sigma drawdown triggers flatten
+  hard_slippage_bp: 100               # immediate flatten if exceeded on a single combo
+  files:
+    soft: PAUSE.NOW                   # pause new entries, allow exits
+    hard: FLATTEN.NOW                 # flatten and halt
+
+escalation:
+  # Sequence of actions when a breach occurs
+  - {after_min: 0,   action: pause_new}
+  - {after_min: 5,   action: reduce_25}
+  - {after_min: 15,  action: reduce_50}
+  - {after_min: 30,  action: flatten}
+
+per_curve_overrides:
+  # Overrides for the curves defined in settings.yaml
+  CL:
+    sector: ENERGY
+    risk_budget_usd: 120000
+    max_open_orders: 12
+    max_positions: 6
+    flatten_days_before_fnd: 3
+    flatten_days_before_ltd: 1
+    per_trade_notional_cap_usd: 200000
+  NG:
+    sector: ENERGY
+    risk_budget_usd: 120000
+    max_open_orders: 12
+    max_positions: 6
+    flatten_days_before_fnd: 3
+    flatten_days_before_ltd: 1
+  RB:
+    sector: ENERGY
+    risk_budget_usd: 80000
+    max_open_orders: 10
+    max_positions: 5
+  HO:
+    sector: ENERGY
+    risk_budget_usd: 80000
+    max_open_orders: 10
+    max_positions: 5
+  LCO:
+    sector: ENERGY
+    risk_budget_usd: 100000
+    max_open_orders: 10
+    max_positions: 5
+  GC:
+    sector: METALS
+    risk_budget_usd: 60000
+    max_open_orders: 8
+    max_positions: 4
+    flatten_days_before_fnd: 4
+  SI:
+    sector: METALS
+    risk_budget_usd: 60000
+    max_open_orders: 8
+    max_positions: 4
+    flatten_days_before_fnd: 4
+  HG:
+    sector: METALS
+    risk_budget_usd: 60000
+    max_open_orders: 8
+    max_positions: 4
+    flatten_days_before_fnd: 4
+  ZC:
+    sector: GRAINS
+    risk_budget_usd: 60000
+    max_open_orders: 8
+    max_positions: 4
+    flatten_days_before_fnd: 5
+  ZW:
+    sector: GRAINS
+    risk_budget_usd: 60000
+    max_open_orders: 8
+    max_positions: 4
+    flatten_days_before_fnd: 5
+  ZS:
+    sector: OILSEEDS
+    risk_budget_usd: 60000
+    max_open_orders: 8
+    max_positions: 4
+    flatten_days_before_fnd: 5
+
+audit_and_alerts:
+  log_level: INFO
+  write_trade_audit_csv: true
+  alert_channels: [stdout]
+  emit_metric_prefix: risk.
