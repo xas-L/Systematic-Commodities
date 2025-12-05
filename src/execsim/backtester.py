@@ -1,5 +1,4 @@
 # src/execsim/backtester.py
-# Path-wise backtester for exchange combo strategies (daily bar, trade t+1)
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,19 +11,27 @@ import pandas as pd
 from ..core.logging import get_logger
 from ..core.types import ComboOrder, ComboLeg, ComboExecutionReport, OrderStatus
 from ..core.utils import to_iso
-from ..data.spreads import calendar_legs_from_name, butterfly_legs_from_name
 from .combos import ComboExecutionSimulator
-
 
 log = get_logger(__name__)
 
+# DEFINE FUNCTIONS HERE INSTEAD OF IMPORTING
+def calendar_legs_from_name(combo_name: str) -> List[Tuple[str, int]]:
+    parts = combo_name.split('-')
+    if len(parts) == 6:
+        expiry1 = f"{parts[0]}-{parts[1]}-{parts[2]}"
+        expiry2 = f"{parts[3]}-{parts[4]}-{parts[5]}"
+        return [(expiry1, -1), (expiry2, 1)]
+    return [(combo_name, -1), (combo_name, 1)]
+
+def butterfly_legs_from_name(combo_name: str) -> List[Tuple[str, int]]:
+    return []
 
 @dataclass
 class PortfolioState:
-    positions: Dict[str, int]        # combo_name -> lots (signed)
+    positions: Dict[str, int]
     cash: float
     fees_paid: float
-
 
 @dataclass
 class TradeIntent:
@@ -32,22 +39,17 @@ class TradeIntent:
     legs: List[Tuple[str, int]]
     lots: int
 
-
 @dataclass
 class BacktestConfig:
     trade_on_next_bar: bool = True
     combo_only: bool = True
     allow_legging: bool = False
 
-
 class Backtester:
     def __init__(self, *, executor: ComboExecutionSimulator, cfg: Optional[BacktestConfig] = None):
         self.exec = executor
         self.cfg = cfg or BacktestConfig()
 
-    # -------------------------
-    # Helpers
-    # -------------------------
     @staticmethod
     def _legs_from_name(name: str) -> List[Tuple[str, int]]:
         parts = name.split("-")
@@ -60,64 +62,49 @@ class Backtester:
 
     @staticmethod
     def _mark_to_market(combo_name: str, lots: int, md_row: dict, lot_value: float) -> float:
-        # PnL = lots * price_change * lot_value
-        # md_row should contain prev_mid and curr_mid
         prev_mid = float(md_row.get("prev_mid", 0.0))
         curr_mid = float(md_row.get("curr_mid", 0.0))
         return lots * (curr_mid - prev_mid) * lot_value
 
-    # -------------------------
-    # Core loop
-    # -------------------------
     def run(
         self,
         *,
         signals: pd.DataFrame,
-        quotes: Dict[str, dict],   # combo_name -> {"mid": Series, "half_spread": Series, "lot_value": float, "symbol": str}
+        quotes: Dict[str, dict],
         sizing_fn,
         sizing_cfg,
         initial_cash: float = 0.0,
     ) -> dict:
         index = signals.index
         combos = list(signals.columns)
-
-        # Initialise portfolio
         state = PortfolioState(positions={c: 0 for c in combos}, cash=initial_cash, fees_paid=0.0)
         pnl_path = []
         trade_log = []
 
         for i in range(1, len(index)):
             t_prev, t_cur = index[i - 1], index[i]
-
-            # --- mark to market existing positions
             pnl_inc = 0.0
             for c in combos:
                 lots = state.positions.get(c, 0)
-                if lots == 0:
-                    continue
+                if lots == 0: continue
                 q = quotes[c]
                 md_row = {"prev_mid": float(q["mid"].loc[t_prev]), "curr_mid": float(q["mid"].loc[t_cur])}
                 pnl_inc += self._mark_to_market(c, lots, md_row, float(q["lot_value"]))
             state.cash += pnl_inc
             pnl_path.append(pnl_inc)
 
-            # --- generate intents (using signal at t_prev, trade at t_cur)
             last_signals = signals.loc[t_prev]
             intents = []
             for c in combos:
                 sig = float(last_signals.get(c, np.nan))
-                if not np.isfinite(sig):
-                    continue
+                if not np.isfinite(sig): continue
                 q = quotes[c]
                 lot_value = float(q["lot_value"]) if np.isfinite(q.get("lot_value", np.nan)) else 1.0
-                # simple sizing: linear in z with cap; can plug in vol targeting by passing pricing history
                 lots = sizing_fn(signal=sig, combo_price_series=q["mid"].loc[:t_prev], lot_value=lot_value, cfg=sizing_cfg)
-                if lots == 0:
-                    continue
+                if lots == 0: continue
                 legs = self._legs_from_name(c)
                 intents.append(TradeIntent(combo_name=c, legs=legs, lots=lots))
 
-            # --- execute intents on current bar using TOB snapshot
             for ti in intents:
                 q = quotes[ti.combo_name]
                 md_snap = {

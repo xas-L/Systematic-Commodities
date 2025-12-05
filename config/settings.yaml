@@ -131,7 +131,7 @@ models:
   hub_order: [carry_momo_season, pca, coint_adjacent]
 
   pca:
-    enabled: true
+    enabled: false
     n_components: 3
     ewma_span: 60                     # for adaptive z-scoring of factor values
 
@@ -140,15 +140,15 @@ models:
     lambda_decay: 0.060               # shape parameter if enabled
 
   carry_momo_season:
-    enabled: true
+    enabled: false
     k_momentum_days: 20               # term-specific k-day returns
     ewma_span: 60
     seasonality:
-      enabled: true
+      enabled: false
       significance_min_t: 2.0         # require effect strength; else suppress
 
   coint_adjacent:
-    enabled: true
+    enabled: false
     lookback_days: 250
     pval_entry: 0.05                  # trade only when coint p-val small
 
@@ -158,7 +158,7 @@ signal_and_sizing:
   max_gross_usd: 2000000              # portfolio gross cap
   convert_to_combo_sizes: true        # map factor-side to exchange combo qty via vol scaling
   vol_target:
-    enabled: true
+    enabled: false
     lookback_days: 60
     annual_vol_target: 0.10           # 10% annualised per-curve target
 
@@ -179,10 +179,9 @@ walkforward:
   scheme: anchored
   embargo_days: 5
   folds:
-    # Rolling 6M tests after 5Y warm-up; adjust dates to your dataset
-    - {train_start: "2006-01-01", train_end: "2011-12-31", test_start: "2012-01-01", test_end: "2012-06-30"}
-    - {train_start: "2006-01-01", train_end: "2012-06-30", test_start: "2012-07-01", test_end: "2012-12-31"}
-    - {train_start: "2006-01-01", train_end: "2012-12-31", test_start: "2013-01-01", test_end: "2013-06-30"}
+    # Change to match your synthetic data
+    - {train_start: "2015-01-01", train_end: "2018-12-31", test_start: "2019-01-01", test_end: "2019-06-30"}
+    - {train_start: "2015-01-01", train_end: "2019-06-30", test_start: "2019-07-01", test_end: "2019-12-31"}
     # … extend programmatically in scripts/run_walkforward.py
 
 risk:

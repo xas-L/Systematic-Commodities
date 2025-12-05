@@ -64,6 +64,9 @@ def build_curve_surface(
     surface = topn.pivot_table(index="date", columns="expiry", values="px")
     surface = surface.sort_index(axis=1)  # columns ascending by expiry
     surface = surface.dropna(how="all")
+    
+    # CRITICAL FIX: Convert index to DatetimeIndex
+    surface.index = pd.to_datetime(surface.index)
 
     return surface, topn
 
@@ -79,7 +82,10 @@ def log_adjacent_spreads(curve_surface: pd.DataFrame) -> pd.DataFrame:
     arr = np.log(curve_surface[cols].to_numpy())
     spreads = arr[:, 1:] - arr[:, :-1]
     spread_cols = [f"{cols[i]}-{cols[i-1]}" for i in range(1, len(cols))]
-    return pd.DataFrame(spreads, index=curve_surface.index, columns=spread_cols)
+    # Ensure DatetimeIndex
+    result = pd.DataFrame(spreads, index=curve_surface.index, columns=spread_cols)
+    result.index = pd.to_datetime(result.index)
+    return result
 
 
 def roll_yield_adjacent(
@@ -87,11 +93,7 @@ def roll_yield_adjacent(
     *,
     as_annual: bool = True,
 ) -> pd.DataFrame:
-    """Approximate roll yield between adjacent expiries normalised by time gap.
-
-    RY_{i} = (ln F_{i+1} - ln F_{i}) / (Tau_{i+1} - Tau_{i})
-    where Tau is time to expiry in years. If as_annual, scale by 365.25/days.
-    """
+    """Approximate roll yield between adjacent expiries normalised by time gap."""
     if curve_surface.empty or curve_surface.shape[1] < 2:
         return curve_surface.iloc[0:0]
 
@@ -106,8 +108,10 @@ def roll_yield_adjacent(
     denom = gaps_years.reshape(1, -1)
     with np.errstate(divide="ignore", invalid="ignore"):
         ry = np.divide(mat, denom)
-    # optional annualisation already handled by years denominator
-    return pd.DataFrame(ry, index=curve_surface.index, columns=log_sp.columns)
+    # Ensure DatetimeIndex
+    result = pd.DataFrame(ry, index=curve_surface.index, columns=log_sp.columns)
+    result.index = pd.to_datetime(result.index)
+    return result
 
 
 # -----------------------------

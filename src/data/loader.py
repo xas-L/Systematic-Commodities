@@ -53,8 +53,8 @@ def _normalise_bars(df: pd.DataFrame) -> pd.DataFrame:
     num_cols = ["settle", "last", "bid", "ask"]
     for c in num_cols:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").astype("Int64")
-    df["open_interest"] = pd.to_numeric(df["open_interest"], errors="coerce").astype("Int64")
+    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype("int64")
+    df["open_interest"] = pd.to_numeric(df["open_interest"], errors="coerce").fillna(0).astype("int64")
     df["symbol"] = df["symbol"].astype(str)
     # Drop rows with no symbol or expiry
     df = df.dropna(subset=["symbol", "expiry"]).reset_index(drop=True)

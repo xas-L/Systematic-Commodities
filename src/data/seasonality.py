@@ -84,3 +84,34 @@ __all__ = [
     "SeasonalityModel",
     "fit_month_effects",
 ]
+
+def seasonality_features(spreads: pd.DataFrame, t_min: float = 2.0) -> pd.DataFrame:
+    """Simple seasonality feature extraction.
+    
+    Returns deseasonalised spreads (subtract month effects when significant).
+    This is a simplified version for testing.
+    """
+    if spreads.empty:
+        return spreads.copy()
+    
+    months = spreads.index.to_period("M").month
+    result = spreads.copy()
+    
+    for col in spreads.columns:
+        # Group by month
+        monthly_means = spreads[col].groupby(months).mean()
+        monthly_stds = spreads[col].groupby(months).std()
+        monthly_counts = spreads[col].groupby(months).count()
+        
+        # t-stat = mean / (std / sqrt(n))
+        t_stats = monthly_means / (monthly_stds / np.sqrt(monthly_counts))
+        t_stats = t_stats.fillna(0)
+        
+        # Only subtract effect if |t| >= t_min
+        significant = np.abs(t_stats) >= t_min
+        
+        # Create adjustment series
+        adjustment = months.map(lambda m: monthly_means[m] if significant.get(m, False) else 0.0)
+        result[col] = spreads[col] - adjustment.values
+    
+    return result

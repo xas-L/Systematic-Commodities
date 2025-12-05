@@ -1,5 +1,4 @@
-# scripts/run_walkforward.py
-# First-pass end-to-end: build curve, generate combo quotes, fit model hub, and run anchored walk-forward
+# scripts/run_walkforward.py - FIXED VERSION
 from __future__ import annotations
 
 import argparse
@@ -10,28 +9,22 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
-# Make repo root importable
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Local imports from src/
 from src.core.utils import load_settings, load_fees_slippage, load_risk_limits, ensure_dir
 from src.core.logging import configure_logging, get_logger
 from src.core.scheduling import Fold
 from src.data.loader import load_contract_bars, load_contract_meta, validate_bars
 from src.data.curve import build_curve_surface, log_adjacent_spreads
-from src.data.spreads import calendar_spreads
+from src.data.spreads import calendar_prices
 from src.models.hub import build_from_settings
 from src.signals.sizing import SizingConfig, size_from_signal
 from src.execsim.cost_model import YamlFeeModel, YamlSlippageModel
 from src.execsim.combos import ComboExecutionSimulator
 from src.execsim.backtester import Backtester, BacktestConfig
 from src.execsim.walkforward import AnchoredWalkForward
-
-# Minor patch: ensure pandas is visible inside backtester if it expects it
-import src.execsim.backtester as _bt
-_bt.pd = pd  # type: ignore
 
 log = get_logger(__name__)
 
@@ -63,13 +56,13 @@ def _simple_calendar_diff(surface: pd.DataFrame) -> pd.DataFrame:
 
 
 def _calendar_quotes(surface: pd.DataFrame, product: str, fees_cfg: dict) -> dict[str, dict]:
-    """Build quotes dict for calendars: mid series (simple diff), half-spread series, lot_value, symbol."""
+    """Build quotes dict for calendars."""
     pdif = _simple_calendar_diff(surface)
     prod = fees_cfg.get("products", {}).get(product, {})
     min_inc = float(prod.get("combo", {}).get("min_price_increment", prod.get("tick_size", 0.01)))
     typical_half_ticks = float(prod.get("combo", {}).get("typical_half_spread_ticks", 1.0))
     half_spread = typical_half_ticks * min_inc
-    lot_value = float(prod.get("multiplier", 1.0))  # $ P&L per 1.0 price move per lot
+    lot_value = float(prod.get("multiplier", 1.0))
 
     quotes: dict[str, dict] = {}
     for c in pdif.columns:
@@ -78,39 +71,46 @@ def _calendar_quotes(surface: pd.DataFrame, product: str, fees_cfg: dict) -> dic
             "half_spread": pd.Series(half_spread, index=pdif.index),
             "lot_value": lot_value,
             "symbol": product,
-            "tob_size": {ts: 10 for ts in pdif.index},  # coarse constant depth
+            "tob_size": {ts: 10 for ts in pdif.index},
         }
     return quotes
 
 
 def _cms_combo_signal_builder(smap: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Combine Carry/Momo/Season signals into per-combo signals.
-    Strategy: for each base combo name K, average available z-signal columns: carry_K and momo*_K.
-    PCA and coint are ignored here (used in attribution separately).
-    """
+    """FIXED: Return signals with EXACT combo names that match quotes."""
     if "carry_momo_season" not in smap:
-        # fall back to PCA if it happened to return per-feature signals (unlikely)
-        if not smap:
-            return pd.DataFrame()
-        any_df = next(iter(smap.values()))
-        return any_df.copy()
-
+        return pd.DataFrame()
+    
     S = smap["carry_momo_season"].copy()
     cols = list(S.columns)
-    # Collect base names
+    
+    # Group by base combo name
     buckets: dict[str, list[str]] = {}
     for c in cols:
         if c.startswith("carry_"):
             base = c[len("carry_"):]
             buckets.setdefault(base, []).append(c)
         elif c.startswith("momo"):
-            # momo20_<base>
-            _, base = c.split("_", 1)
-            buckets.setdefault(base, []).append(c)
+            try:
+                _, base = c.split("_", 1)
+                buckets.setdefault(base, []).append(c)
+            except:
+                continue
+    
+    # Average signals for each combo
     out = {}
     for base, members in buckets.items():
-        out[base] = S[members].mean(axis=1)
-    return pd.DataFrame(out, index=S.index).sort_index(axis=1)
+        if members:
+            out[base] = S[members].mean(axis=1)
+    
+    result = pd.DataFrame(out, index=S.index)
+    
+    # DEBUG: Print first few combos
+    if not result.empty:
+        log.debug(f"Generated signals for {len(result.columns)} combos")
+        log.debug(f"First 3 combos: {list(result.columns)[:3]}")
+    
+    return result
 
 
 def main():
@@ -122,8 +122,7 @@ def main():
     fees_cfg = load_fees_slippage(ROOT)
     risk_cfg = load_risk_limits(ROOT)
 
-    # Logging
-    log_level = settings.get("ops", {}).get("logging", {}).get("level", "INFO")
+    log_level = "DEBUG"
     rotate_mb = int(settings.get("ops", {}).get("logging", {}).get("rotate_mb", 50))
     configure_logging(level=log_level, log_dir=ROOT / "logs", rotate_mb=rotate_mb)
 
@@ -154,6 +153,12 @@ def main():
 
     # Feature panel X: log-adjacent spreads
     X = log_adjacent_spreads(surface)
+    X.index = pd.to_datetime(X.index)  # Ensure DatetimeIndex
+    
+    # DEBUG: Show what we have
+    log.info(f"Surface shape: {surface.shape}")
+    log.info(f"Spreads shape: {X.shape}")
+    log.info(f"Date range: {X.index[0].date()} to {X.index[-1].date()}")
 
     # Model hub from settings
     models_cfg = settings.get("models", {})
@@ -162,12 +167,13 @@ def main():
     # Folds
     folds = _build_folds_from_settings(settings)
     if not folds:
-        # Simple default: last 3 years, 6-month steps after 5-year warmup
         idx = surface.index
         first_test = idx[min(len(idx)-1, int(5*252))]
         folds = [
             Fold(train_start=idx[0].date(), train_end=first_test.date(), test_start=first_test.date(), test_end=idx[-1].date())
         ]
+    
+    log.info(f"Using {len(folds)} folds")
 
     # Quotes provider closure
     def quotes_provider(d0: date, d1: date) -> dict[str, dict]:
@@ -212,15 +218,22 @@ def main():
     trades_all = pd.concat([r.trade_log for r in results], axis=0).reset_index(drop=True)
 
     # Summary
-    mu = pnl_all.mean()
-    sd = pnl_all.std(ddof=1) if len(pnl_all) > 1 else 0.0
-    sharpe = (mu / sd * np.sqrt(252.0)) if sd > 0 else 0.0
-    total = pnl_all.sum()
-    log.info("Summary — Total: $%.0f | Daily μ: $%.2f | Daily σ: $%.2f | Sharpe: %.2f", total, mu, sd, sharpe)
+    if not pnl_all.empty:
+        mu = pnl_all.mean()
+        sd = pnl_all.std(ddof=1) if len(pnl_all) > 1 else 0.0
+        sharpe = (mu / sd * np.sqrt(252.0)) if sd > 0 else 0.0
+        total = pnl_all.sum()
+        log.info("Summary — Total: $%.0f | Daily μ: $%.2f | Daily σ: $%.2f | Sharpe: %.2f", total, mu, sd, sharpe)
+        log.info("Trades executed: %d", len(trades_all))
+    else:
+        log.warning("No P&L generated - check signal/quote alignment")
+        # Debug: show what combos were available
+        sample_quotes = quotes_provider(folds[0].test_start, folds[0].test_end)
+        log.debug("Available combos in first fold: %s", list(sample_quotes.keys())[:5])
 
     # Persist
     out_dir = ensure_dir(ROOT / "reports" / "pm_brief" / symbol)
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     pnl_all.to_csv(out_dir / f"pnl_path_{ts}.csv")
     trades_all.to_csv(out_dir / f"trade_log_{ts}.csv", index=False)
     log.info("Wrote %s and %s", out_dir / f"pnl_path_{ts}.csv", out_dir / f"trade_log_{ts}.csv")

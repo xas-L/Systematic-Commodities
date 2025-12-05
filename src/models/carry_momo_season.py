@@ -22,13 +22,7 @@ class CMSParams:
 
 
 class CarryMomentumSeasonality:
-    """Feature builder on top of log-adjacent spreads (and optionally roll-yield/flies).
-
-    Inputs X: wide panel (rows=time, cols=log-adjacent spreads or similar)
-    Transform Z: concat of carry (level), momentum (k-day change), and seasonal-residualised level if enabled
-    Signal S: EWMA z-scored Z
-    Health: NaN fraction and minimal variance
-    """
+    """Feature builder on top of log-adjacent spreads (and optionally roll-yield/flies)."""
 
     def __init__(self, k_momo: int = 20, ewma_span: int = 60, seasonality: bool = True, seas_t_min: float = 2.0):
         self.params = CMSParams(k_momo=k_momo, ewma_span=ewma_span, seasonality=seasonality, seas_t_min=seas_t_min)
@@ -54,8 +48,10 @@ class CarryMomentumSeasonality:
     # API
     # -------------------------
     def fit(self, X: pd.DataFrame, **_):
+        # Accept any index, convert to DatetimeIndex if needed
         if not isinstance(X.index, pd.DatetimeIndex):
-            raise ValueError("CarryMomentumSeasonality expects X with DatetimeIndex")
+            X = X.copy()
+            X.index = pd.to_datetime(X.index)
         self._fit_columns = list(X.columns)
 
     def transform(self, X: pd.DataFrame, **_) -> pd.DataFrame:

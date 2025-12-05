@@ -19,7 +19,7 @@ class PCAParams:
     standardize: bool = True   # z-score columns on the fit window
     center_only: bool = False  # if True, subtract mean but do not scale
     ewma_span: int = 60        # for adaptive z-scoring of factor values in signal()
-    min_samples: int = 100     # minimal rows to fit
+    min_samples: int = 20     # minimal rows to fit
 
 
 class PCAFactor:
