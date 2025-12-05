@@ -63,6 +63,7 @@ Systematic-Commodities/
   reports/
     pm_brief/              # artifacts (pnl_path.csv, trade_log.csv, summaries)
   scripts/
+    generate_test_data.py
     build_curve_snapshot.py
     run_walkforward.py
     gen_pm_brief.py
