@@ -20,14 +20,14 @@ paths:
   secrets_hint: "../secrets/ib_paper.yaml"   # not committed
 
 calendars:
-  # Named trading calendars; files live under paths.data_meta/calendars
+  # Named trading calendars; files live under config/calendars/
   trading_calendar_ids: [CME, NYMEX, COMEX, CBOT, ICE]
   holiday_files:
-    CME: data/meta/calendars/cme_holidays.csv
-    NYMEX: data/meta/calendars/nymex_holidays.csv
-    COMEX: data/meta/calendars/comex_holidays.csv
-    CBOT: data/meta/calendars/cbot_holidays.csv
-    ICE: data/meta/calendars/ice_holidays.csv
+    CME:   config/calendars/cme_holidays.csv
+    NYMEX: config/calendars/nymex_holidays.csv
+    COMEX: config/calendars/comex_holidays.csv
+    CBOT:  config/calendars/cbot_holidays.csv
+    ICE:   config/calendars/ice_holidays.csv
 
 universe:
   # Curves we will trade. Symbols are future roots (not continuous tickers).
@@ -37,7 +37,7 @@ universe:
       exchange: NYMEX
       currency: USD
       month_cycle: ALL            # monthly listings
-      min_contracts: 8            # minimal listed contracts required to build curve
+      min_contracts: 8
       max_tenors: 14
       sector: ENERGY
     NG:
@@ -113,76 +113,83 @@ universe:
 
 curve_construction:
   price_field_order: [settle, last]   # fallbacks if settle missing
-  drop_stale_after_days: 10           # if no print for N days, treat as missing
-  align_method: inner                 # intersection across expiries per day
-  log_spreads: true                   # use log-adjacent spreads for modelling
-  tenors_target: 10                   # aim to build up to this many adjacent spreads
+  drop_stale_after_days: 10
+  align_method: inner
+  log_spreads: true
+  tenors_target: 10
   filter:
-    min_volume: 500                   # per-contract daily volume threshold
+    min_volume: 500
     min_open_interest: 2000
   roll_policy:
-    prefer_exchange_combo: true       # roll via exchange-defined combos where available
-    roll_window_days: 5               # start rolling this many business days before target roll date
-    avoid_first_notice_days: 3        # auto-flatten calendar legs that cross FND-LTD windows
+    prefer_exchange_combo: true
+    roll_window_days: 5
+    avoid_first_notice_days: 3
     avoid_last_trade_days: 1
 
 models:
-  # Model hub order == attribution order
+  # Model hub order == attribution order.
+  # Set enabled: true for each model you want to run.
   hub_order: [carry_momo_season, pca, coint_adjacent]
 
-  pca:
-    enabled: false
-    n_components: 3
-    ewma_span: 60                     # for adaptive z-scoring of factor values
-
-  nelson_siegel:
-    enabled: false                    # optional alternative to PCA; off by default
-    lambda_decay: 0.060               # shape parameter if enabled
-
   carry_momo_season:
-    enabled: false
-    k_momentum_days: 20               # term-specific k-day returns
+    enabled: true                      # PRIMARY signal — must be true to produce any P&L
+    k_momentum_days: 20
     ewma_span: 60
     seasonality:
-      enabled: false
-      significance_min_t: 2.0         # require effect strength; else suppress
+      enabled: true
+      significance_min_t: 2.0
+
+  pca:
+    enabled: false                     # Enable after fetching real data to add attribution layer
+    n_components: 3
+    ewma_span: 60
+
+  nelson_siegel:
+    enabled: false                     # Optional curve factor model; off by default
+    lambda_decay: 0.060
 
   coint_adjacent:
-    enabled: false
+    enabled: false                     # Enable for cointegration overlay; computationally heavier
     lookback_days: 250
-    pval_entry: 0.05                  # trade only when coint p-val small
+    pval_entry: 0.05
 
 signal_and_sizing:
-  z_clip: 3.0                         # clip extreme z to reduce tail leverage
-  risk_per_curve_usd: 100000          # target risk budget per curve (notional proxy)
-  max_gross_usd: 2000000              # portfolio gross cap
-  convert_to_combo_sizes: true        # map factor-side to exchange combo qty via vol scaling
+  z_clip: 3.0
+  risk_per_curve_usd: 100000
+  max_gross_usd: 2000000
+  convert_to_combo_sizes: true
   vol_target:
-    enabled: false
+    enabled: true
     lookback_days: 60
-    annual_vol_target: 0.10           # 10% annualised per-curve target
+    annual_vol_target: 0.10
 
 execution_sim:
   bar: daily
-  decision_price: settle              # compute signals on settle at t
-  trade_on_next_bar: true             # submit at t+1 open/session start
-  combo_only: true                    # calendars and butterflies via exchange combos
-  allow_legging: false                # do not leg unless explicitly enabled in experiments
+  decision_price: settle
+  trade_on_next_bar: true
+  combo_only: true
+  allow_legging: false
   partial_fills: true
   child_order:
     timeout_seconds: 5
-    queue_fraction: 0.3               # crude queue position proxy (30% of TOB filled)
-  cost_profile: conservative          # defined in fees_slippage.yaml
-  slippage_profile: conservative      # defined in fees_slippage.yaml
+    queue_fraction: 0.3
+  cost_profile: conservative
+  slippage_profile: conservative
 
 walkforward:
   scheme: anchored
   embargo_days: 5
   folds:
-    # Change to match your synthetic data
+    # Default folds for synthetic data. run_walkforward.py auto-generates
+    # from actual data range if these don't overlap the loaded data.
     - {train_start: "2015-01-01", train_end: "2018-12-31", test_start: "2019-01-01", test_end: "2019-06-30"}
     - {train_start: "2015-01-01", train_end: "2019-06-30", test_start: "2019-07-01", test_end: "2019-12-31"}
-    # … extend programmatically in scripts/run_walkforward.py
+    - {train_start: "2015-01-01", train_end: "2019-12-31", test_start: "2020-01-01", test_end: "2020-06-30"}
+    - {train_start: "2015-01-01", train_end: "2020-06-30", test_start: "2020-07-01", test_end: "2020-12-31"}
+    - {train_start: "2015-01-01", train_end: "2020-12-31", test_start: "2021-01-01", test_end: "2021-12-31"}
+    - {train_start: "2015-01-01", train_end: "2021-12-31", test_start: "2022-01-01", test_end: "2022-12-31"}
+    - {train_start: "2015-01-01", train_end: "2022-12-31", test_start: "2023-01-01", test_end: "2023-12-31"}
+    - {train_start: "2015-01-01", train_end: "2023-12-31", test_start: "2024-01-01", test_end: "2024-12-31"}
 
 risk:
   per_curve:
@@ -215,18 +222,17 @@ risk:
     max_net_usd: 1000000
   kill_criteria:
     model_health_breach: true
-    factor_drift_threshold: 0.5          # unitless; see models.health()
-    live_slip_over_backtest_bp: 50       # trigger de-risk if exceeded persistently
-    dd_sigma_threshold: 3.0              # three-sigma drawdown triggers flatten
+    factor_drift_threshold: 0.5
+    live_slip_over_backtest_bp: 50
+    dd_sigma_threshold: 3.0
 
 state_conditioning:
-  # Tag observable regimes; use in conditional performance cuts
   tags:
     seasonality: true
     roll_windows: true
     inventory_proxies:
-      EIA_energy: true      # weekly crude/gasoline/distillate
-      USDA_grains: true     # monthly/grain stocks
+      EIA_energy: true
+      USDA_grains: true
     refinery_maintenance: true
     shipping_freight_stress: true
     storage_economics_flags: true
@@ -234,8 +240,8 @@ state_conditioning:
 ops:
   hot_reload: true
   kill_switch:
-    soft_file: PAUSE.NOW     # pause new orders; allow exits
-    hard_file: FLATTEN.NOW   # close positions and halt
+    soft_file: PAUSE.NOW
+    hard_file: FLATTEN.NOW
   logging:
     level: INFO
     rotate_mb: 50
