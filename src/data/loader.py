@@ -1,13 +1,16 @@
 # src/data/loader.py
-# IO layer for raw/curated data, metadata, and trading calendars
+# IO layer for raw/curated data, metadata & trading calendars
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
 import pandas as pd
 
 from ..core.utils import ensure_dir, project_root
+
+log = logging.getLogger(__name__)
 
 REQUIRED_BAR_COLS = {
     "date", "symbol", "expiry", "settle", "last", "bid", "ask", "volume", "open_interest"
@@ -23,50 +26,34 @@ def _read_any(path: Path) -> pd.DataFrame:
 
 
 def _normalise_bars(df: pd.DataFrame) -> pd.DataFrame:
-    # Standard column set and types
     cols = {
-        "Date": "date",
-        "TradingDate": "date",
-        "Symbol": "symbol",
-        "Root": "symbol",
-        "Expiry": "expiry",
-        "Expiration": "expiry",
-        "Settle": "settle",
-        "Close": "settle",
-        "Last": "last",
-        "Bid": "bid",
-        "Ask": "ask",
+        "Date": "date", "TradingDate": "date",
+        "Symbol": "symbol", "Root": "symbol",
+        "Expiry": "expiry", "Expiration": "expiry",
+        "Settle": "settle", "Close": "settle",
+        "Last": "last", "Bid": "bid", "Ask": "ask",
         "Volume": "volume",
-        "OpenInterest": "open_interest",
-        "Open Interest": "open_interest",
+        "OpenInterest": "open_interest", "Open Interest": "open_interest",
     }
     df = df.rename(columns={k: v for k, v in cols.items() if k in df.columns})
-    # Lowercase
     df.columns = [c.lower() for c in df.columns]
-    # Ensure all expected columns exist
     for c in REQUIRED_BAR_COLS:
         if c not in df.columns:
             df[c] = pd.NA
-    # Types
-    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["date"]   = pd.to_datetime(df["date"]).dt.date
     df["expiry"] = pd.to_datetime(df["expiry"]).dt.date
-    num_cols = ["settle", "last", "bid", "ask"]
-    for c in num_cols:
+    for c in ["settle", "last", "bid", "ask"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype("int64")
+    df["volume"]        = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype("int64")
     df["open_interest"] = pd.to_numeric(df["open_interest"], errors="coerce").fillna(0).astype("int64")
     df["symbol"] = df["symbol"].astype(str)
-    # Drop rows with no symbol or expiry
     df = df.dropna(subset=["symbol", "expiry"]).reset_index(drop=True)
     return df[list(REQUIRED_BAR_COLS)]
 
 
 def load_contract_bars(symbol: str, root: Optional[Path] = None) -> pd.DataFrame:
-    """Load all raw bars for a root symbol from data/raw/<symbol>/.
-
-    Supports CSV and Parquet. Returns a normalised DataFrame with the standard columns.
-    """
-    root = project_root(root)
+    """Load all raw bars for a root symbol from data/raw/<symbol>/."""
+    root   = project_root(root)
     folder = root / "data" / "raw" / symbol
     if not folder.exists():
         raise FileNotFoundError(f"No raw data folder for {symbol}: {folder}")
@@ -79,23 +66,17 @@ def load_contract_bars(symbol: str, root: Optional[Path] = None) -> pd.DataFrame
     if not frames:
         raise FileNotFoundError(f"No data files found under {folder}")
     out = pd.concat(frames, ignore_index=True)
-    out = out.sort_values(["date", "expiry"])  # stable order
+    out = out.sort_values(["date", "expiry"])
     return out
 
 
 def load_contract_meta(symbol: str, root: Optional[Path] = None) -> pd.DataFrame:
-    """Load per-expiry metadata from data/meta/contracts/<symbol>_meta.csv if present.
-
-    Expected columns: expiry, first_notice_date, last_trade_date, tick_size, multiplier, currency, month_code, year
-    Missing columns are filled with NA. Dates are parsed to Python date.
-    """
+    """Load per-expiry metadata from data/meta/contracts/<symbol>_meta.csv if present."""
     root = project_root(root)
     path = root / "data" / "meta" / "contracts" / f"{symbol}_meta.csv"
+    cols = ["expiry", "first_notice_date", "last_trade_date",
+            "tick_size", "multiplier", "currency", "month_code", "year"]
     if not path.exists():
-        # Return empty frame with the schema so joins work downstream
-        cols = [
-            "expiry", "first_notice_date", "last_trade_date", "tick_size", "multiplier", "currency", "month_code", "year"
-        ]
         return pd.DataFrame(columns=cols)
     df = pd.read_csv(path)
     df = df.rename(columns={c: c.lower() for c in df.columns})
@@ -112,36 +93,55 @@ def load_contract_meta(symbol: str, root: Optional[Path] = None) -> pd.DataFrame
 
 def load_holidays(exchange: str, root: Optional[Path] = None) -> set:
     """Load exchange holiday dates from config/calendars/<exchange>_holidays.csv.
+
     Returns a set of Python date objects.
+
+    Raises a visible WARNING (not a silent empty set) when the file is missing,
+    so that operators notice the gap and can populate the file before live use.
+    The RollManager and add_business_days utilities depend on this data to avoid
+    scheduling roll executions on closed-market days.
     """
     root = project_root(root)
     path = root / "config" / "calendars" / f"{exchange.lower()}_holidays.csv"
     if not path.exists():
-        # Allow missing calendars during prototyping
+        log.warning(
+            "Holiday calendar not found for exchange '%s' (expected: %s). "
+            "Roll and scheduling logic will treat all weekdays as trading days. "
+            "Populate this file to prevent attempted execution on market holidays.",
+            exchange, path,
+        )
         return set()
-    s = pd.read_csv(path, header=None)[0]
-    return set(pd.to_datetime(s, errors="coerce").dt.date.dropna().tolist())
+    try:
+        s = pd.read_csv(path, header=None)[0]
+        dates = set(pd.to_datetime(s, errors="coerce").dt.date.dropna().tolist())
+        log.debug("Loaded %d holidays for %s from %s", len(dates), exchange, path)
+        return dates
+    except Exception as exc:
+        log.error("Failed to parse holiday file %s: %s", path, exc)
+        return set()
 
 
-def write_curated_snapshot(symbol: str, df: pd.DataFrame, snapshot_name: str, root: Optional[Path] = None) -> Path:
+def write_curated_snapshot(
+    symbol: str,
+    df: pd.DataFrame,
+    snapshot_name: str,
+    root: Optional[Path] = None,
+) -> Path:
     """Persist a curated snapshot under data/curated/<symbol>/<snapshot_name>.parquet"""
-    root = project_root(root)
+    root   = project_root(root)
     folder = ensure_dir(root / "data" / "curated" / symbol)
-    path = folder / f"{snapshot_name}.parquet"
+    path   = folder / f"{snapshot_name}.parquet"
     df.to_parquet(path, index=True)
     return path
 
 
 def validate_bars(df: pd.DataFrame) -> Tuple[bool, list[str]]:
-    """Basic invariants: columns present, dates sorted, no duplicate (date, expiry)."""
+    """Basic invariants: columns present, no duplicate (date, expiry)."""
     errors: list[str] = []
     missing = REQUIRED_BAR_COLS - set(df.columns)
     if missing:
         errors.append(f"Missing columns: {sorted(missing)}")
-    # date monotonic is not required globally, but duplicates per (date, expiry) are not allowed
     idx = df.set_index(["date", "expiry"]).index
-    dup = idx.duplicated()
-    if dup.any():
+    if idx.duplicated().any():
         errors.append("Duplicate (date, expiry) rows detected")
-    ok = len(errors) == 0
-    return ok, errors
+    return len(errors) == 0, errors
