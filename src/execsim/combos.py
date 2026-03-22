@@ -11,9 +11,9 @@ import numpy as np
 from ..core.types import ComboOrder, ComboExecutionReport, OrderStatus
 
 
-# -----------------------------
+
 # Fee & slippage callables (injected)
-# -----------------------------
+
 class FeeModel:
     def __call__(self, order: ComboOrder, fill_qty: int) -> float:  # pragma: no cover - interface
         return 0.0
@@ -24,9 +24,9 @@ class SlippageModel:
         return 0.0
 
 
-# -----------------------------
+
 # Simulator
-# -----------------------------
+
 @dataclass
 class SimConfig:
     timeout_seconds: int = 5

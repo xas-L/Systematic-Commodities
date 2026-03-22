@@ -12,9 +12,9 @@ from ..core.utils import safe_div
 from .contracts import filter_tradeable_rows, select_front_n, add_days_to_expiry
 
 
-# -----------------------------
+
 # Price field resolution
-# -----------------------------
+
 
 def _resolve_price(df: pd.DataFrame, price_field_order: list[str]) -> pd.Series:
     for f in price_field_order:
@@ -25,9 +25,9 @@ def _resolve_price(df: pd.DataFrame, price_field_order: list[str]) -> pd.Series:
     return pd.Series(index=df.index, dtype=float)
 
 
-# -----------------------------
+
 # Curve construction
-# -----------------------------
+
 
 def build_curve_surface(
     contract_df: pd.DataFrame,
@@ -71,9 +71,9 @@ def build_curve_surface(
     return surface, topn
 
 
-# -----------------------------
+
 # Adjacent log spreads and roll yield
-# -----------------------------
+
 
 def log_adjacent_spreads(curve_surface: pd.DataFrame) -> pd.DataFrame:
     if curve_surface.empty or curve_surface.shape[1] < 2:
@@ -114,9 +114,9 @@ def roll_yield_adjacent(
     return result
 
 
-# -----------------------------
+
 # Utility: align two surfaces on common dates/expiries
-# -----------------------------
+
 
 def align_surfaces(a: pd.DataFrame, b: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     common_dates = a.index.intersection(b.index)

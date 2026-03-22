@@ -342,7 +342,7 @@ def main():
         traceback.print_exc()
         all_ok = False
 
-    # ── Final verdict ─────────────────────────────────────────────────────
+    #  Final verdict 
     print(f"\n{'='*60}")
     if all_ok:
         print("ALL STAGES PASSED")

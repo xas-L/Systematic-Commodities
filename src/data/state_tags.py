@@ -11,9 +11,9 @@ import pandas as pd
 from .contracts import add_days_to_expiry
 
 
-# -----------------------------
+
 # Core tag builders
-# -----------------------------
+
 
 def tag_month_of_year(index: pd.DatetimeIndex) -> pd.Series:
     return pd.Series(index.month, index=index, name="month")
@@ -101,9 +101,9 @@ def tag_shipping_stress(index: pd.DatetimeIndex, proxy_series: Optional[pd.Serie
     return (z <= -abs(z_thresh)).astype(int).rename("shipping_stress")
 
 
-# -----------------------------
+
 # Aggregator
-# -----------------------------
+
 
 def build_state_tags(
     *,

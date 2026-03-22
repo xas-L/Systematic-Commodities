@@ -20,9 +20,9 @@ class ContractKey:
         return f"{self.symbol}:{self.expiry.isoformat()}"
 
 
-# -----------------------------
+
 # Contract chain utilities
-# -----------------------------
+
 
 def available_expiries_by_date(df: pd.DataFrame) -> Dict[date, List[date]]:
     """Return mapping date -> sorted list of expiries available that day."""
@@ -58,9 +58,9 @@ def filter_tradeable_rows(
     return df.loc[ok].drop(columns=["last_seen", "days_since_last"])  # type: ignore
 
 
-# -----------------------------
+
 # Month code helpers
-# -----------------------------
+
 _MONTH_INT_TO_CODE = {v: k for k, v in {
     "F": 1,  "G": 2,  "H": 3,  "J": 4,  "K": 5,  "M": 6,
     "N": 7,  "Q": 8,  "U": 9,  "V": 10, "X": 11, "Z": 12,
@@ -77,9 +77,9 @@ def contract_code(symbol: str, exp: date) -> str:
     return f"{symbol}{expiry_to_code(exp)}{y}"
 
 
-# -----------------------------
+
 # Front N contract selection per day
-# -----------------------------
+
 
 def select_front_n(
     df: pd.DataFrame,
@@ -100,9 +100,9 @@ def select_front_n(
     return pd.concat(out, ignore_index=True) if out else df.iloc[0:0]
 
 
-# -----------------------------
+
 # Days-to-expiry (useful for roll yield normalisation)
-# -----------------------------
+
 
 def add_days_to_expiry(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:

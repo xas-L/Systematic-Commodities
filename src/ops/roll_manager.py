@@ -17,9 +17,9 @@ from ..data.spreads import (
 log = get_logger(__name__)
 
 
-# -----------------------------
+
 # Policy & actions
-# -----------------------------
+
 @dataclass
 class RollPolicy:
     roll_window_days: int = 5
@@ -38,9 +38,9 @@ class RollAction:
     schedule: Tuple[float, ...]
 
 
-# -----------------------------
+
 # Helpers
-# -----------------------------
+
 
 def _combo_kind(name: str) -> str:
     parts = name.split("-")
@@ -103,9 +103,9 @@ def _leg_is_in_roll_window(leg_exp: str, today: date, meta_by_exp: dict, policy:
     return dte <= policy.roll_window_days
 
 
-# -----------------------------
+
 # Roll manager
-# -----------------------------
+
 class RollManager:
     """Plans roll actions for open combo positions to avoid FND/LTD traps.
 
@@ -174,9 +174,9 @@ class RollManager:
         return actions
 
 
-# -----------------------------
+
 # Plan → intents helper (optional)
-# -----------------------------
+
 @dataclass
 class ExecIntent:
     symbol: str
