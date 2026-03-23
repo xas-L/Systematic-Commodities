@@ -1,6 +1,6 @@
 # Systematic-Commodities
 
-An attempt at prod‑style, **curve RV** research for commodity futures that trades **exchange combo calendars and butterflies**. The stack emphasizes **economics first** (carry/roll, momentum, seasonality, PCA, optional cointegration), **cost‑aware walk‑forwards**, and **clean attribution**. No deep learning; ML overkill is not needed.
+A WIP attempt at prod‑style, **curve RV** research for commodity futures that trades **exchange combo calendars and butterflies**. The stack emphasizes **economics first** (carry/roll, momentum, seasonality, PCA, optional cointegration), **cost‑aware walk‑forwards**, and **clean attribution**. No deep learning; ML overkill is not needed.
 
 ---
 
